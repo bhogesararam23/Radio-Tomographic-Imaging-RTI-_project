@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UbiqMap · Radio Tomographic Imaging — Interactive Simulation</title>
+<style>
+  :root{
+    --bg:#0b0e13; --panel:#12161d; --panel2:#171c25; --border:#1f2630;
+    --text:#dbe2ee; --dim:#8b96a8; --accent:#4ea1ff; --green:#3ecf8e;
+    --blue:#38bdf8; --orange:#ff9d3c; --red:#ff6b6b;
+  }
+  *{ box-sizing:border-box; }
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  a{ color:var(--accent); text-decoration:none; }
+  a:hover{ text-decoration:underline; }
+  header{
+    padding:22px 28px 14px; border-bottom:1px solid var(--border);
+    background:linear-gradient(180deg,#10141b, #0b0e13);
+  }
+  header h1{ margin:0; font-size:22px; letter-spacing:.2px; }
+  header .sub{ color:var(--dim); margin-top:6px; max-width:960px; }
+  .badge{
+    display:inline-block; margin-top:10px; padding:3px 10px; border-radius:20px;
+    font-size:11.5px; background:#16202e; color:var(--accent); border:1px solid #24405e;
+  }
+  .wrap{ display:grid; grid-template-columns:minmax(340px,470px) 1fr; gap:20px; padding:20px 28px; }
+  @media (max-width:900px){ .wrap{ grid-template-columns:1fr; } }
+  .card{
+    background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:16px; margin-bottom:16px;
+  }
+  .card h2{ margin:0 0 4px; font-size:14.5px; color:var(--text); }
+  .card .hint{ color:var(--dim); font-size:12px; margin:0 0 12px; }
+  canvas{ display:block; image-rendering:pixelated; border-radius:8px; background:#0a0c10; }
+  .toolbar{ display:flex; flex-wrap:wrap; gap:6px; margin-top:12px; }
+  button{
+    background:var(--panel2); color:var(--text); border:1px solid var(--border);
+    padding:7px 12px; border-radius:8px; cursor:pointer; font-size:13px; transition:.15s;
+  }
+  button:hover{ border-color:var(--accent); color:#fff; }
+  button.primary{ background:#1c4a7a; border-color:#2f6cb0; color:#fff; }
+  button.primary:hover{ background:#22578f; }
+  button.tool.on{ background:#31404f; border-color:var(--accent); color:#fff; }
+  .controls{ display:grid; gap:12px; }
+  .ctl label{ display:flex; justify-content:space-between; font-size:12.5px; color:var(--dim); }
+  .ctl input[type=range]{ width:100%; accent-color:var(--accent); }
+  .ctl .val{ color:var(--text); font-variant-numeric:tabular-nums; }
+  select{
+    background:var(--panel2); color:var(--text); border:1px solid var(--border);
+    padding:6px 8px; border-radius:8px; font-size:13px;
+  }
+  .recon-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:14px; }
+  @media (max-width:1200px){ .recon-grid{ grid-template-columns:1fr; } }
+  .recon{ text-align:center; }
+  .recon h3{ margin:0 0 8px; font-size:13px; color:var(--dim); font-weight:600; }
+  .recon canvas{ margin:0 auto; }
+  .metric{ margin-top:8px; font-size:12.5px; color:var(--dim); }
+  .metric b{ color:var(--text); font-variant-numeric:tabular-nums; }
+  .metric .iou{ color:var(--green); }
+  .stats{ display:flex; gap:18px; font-size:12.5px; color:var(--dim); flex-wrap:wrap; }
+  .stats b{ color:var(--text); }
+  .formula{
+    margin-top:12px; padding:12px 14px; background:#0d1117; border:1px solid var(--border);
+    border-radius:8px; font:12.5px/1.7 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    color:#9fb4d0;
+  }
+  #solving{ color:var(--orange); font-size:12.5px; opacity:0; transition:.2s; }
+  footer{ padding:18px 28px 40px; color:var(--dim); font-size:12.5px; border-top:1px solid var(--border); }
+  footer .links{ margin-top:8px; display:flex; flex-wrap:wrap; gap:16px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>UbiqMap — Radio Tomographic Imaging <span style="color:var(--dim);font-weight:400;">(interactive simulation)</span></h1>
+  <p class="sub">Radios can <b>see through walls</b>. A moving transmitter–receiver pair measures how much signal each straight path loses; walls absorb more than air. After enough measurements from enough angles, you can solve backwards and recover the floor plan — no cameras, no pre-installed infrastructure. I reproduced the core of <b>“Ubiquitous Indoor Mapping using Mobile Radio Tomography”</b> (Basu, Chakraborty &amp; Jajal, IEEE TMC 2024, SeNSE group, IIT Madras).</p>
+  <span class="badge">Educational reproduction · mirrors the group's own rti-tutorial model</span>
+</header>
+
+<div class="wrap">
+
+  <!-- ============ LEFT: draw + survey ============ -->
+  <div>
+    <div class="card">
+      <h2>1 · Draw the building (the unknown ground truth)</h2>
+      <p class="hint">Drag on the grid to draw. Use the tools below — then run the survey.</p>
+      <canvas id="truth"></canvas>
+      <div class="toolbar">
+        <button class="tool on" id="toolWall">🧱 Wall</button>
+        <button class="tool" id="toolErase">⌫ Erase</button>
+        <button class="tool" id="toolPerson">🚶 Person</button>
+        <span style="flex:1"></span>
+        <button id="runBtn" class="primary">▶ Run survey</button>
+        <button id="animBtn">⏵ Animate survey</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>2 · Survey &amp; solver settings</h2>
+      <p class="hint">“Rounds” = how many different receiver offsets the mobile radio uses (more = more links = better map).</p>
+      <div class="controls">
+        <div class="ctl">
+          <label>Grid size <span class="val"><select id="Nsel"><option>16</option><option selected>24</option><option>28</option><option>32</option></select></span></label>
+        </div>
+        <div class="ctl">
+          <label>Survey rounds <span class="val" id="roundsVal">7</span></label>
+          <input type="range" id="rounds" min="1" max="7" step="1" value="7">
+        </div>
+        <div class="ctl">
+          <label>Measurement noise σ <span class="val" id="noiseVal">0.02</span></label>
+          <input type="range" id="noise" min="0" max="0.10" step="0.005" value="0.02">
+        </div>
+        <div class="ctl">
+          <label>Regularization λ <span class="val" id="lambdaVal">0.10</span></label>
+          <input type="range" id="lambda" min="0" max="0.5" step="0.01" value="0.10">
+        </div>
+      </div>
+      <div class="toolbar">
+        <button id="presetApt">🏠 Apartment</button>
+        <button id="presetRooms">🚪 Two rooms</button>
+        <button id="presetHall">🏛 Hall + pillars</button>
+        <button id="presetEmpty">⬜ Empty</button>
+        <button id="presetRandom">🎲 Random</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>The math (that's all of it)</h2>
+      <div class="formula">
+        y = A·x + noise<br>
+        x̂<sub>LS</sub> = argmin ‖Ax − y‖²<br>
+        x̂<sub>Tikhonov</sub> = argmin ‖Ax − y‖² + λ·‖Lx‖²&nbsp;&nbsp;(L = Laplacian)<br>
+        x̂<sub>TV</sub> = argmin ‖Ax − y‖² + λ·TV(x)&nbsp;&nbsp;(iteratively reweighted → sharp wall edges)
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ RIGHT: reconstruction ============ -->
+  <div>
+    <div class="card">
+      <h2>3 · Reconstruction from radio links only</h2>
+      <p class="hint">Same measurements, three solvers. Watch map quality improve — that's UbiqMap's core message.</p>
+      <div class="stats">
+        <span>links <b id="mCount">–</b></span>
+        <span>unknown pixels <b id="pCount">–</b></span>
+        <span>solve time <b id="time">–</b></span>
+        <span id="solving">solving…</span>
+      </div>
+      <div class="recon-grid" style="margin-top:14px;">
+        <div class="recon">
+          <h3>Least squares</h3>
+          <canvas id="rLS"></canvas>
+          <div class="metric" id="mLS">—</div>
+        </div>
+        <div class="recon">
+          <h3>Tikhonov (Laplacian)</h3>
+          <canvas id="rTK"></canvas>
+          <div class="metric" id="mTK">—</div>
+        </div>
+        <div class="recon">
+          <h3>TV (IRLS)</h3>
+          <canvas id="rTV"></canvas>
+          <div class="metric" id="mTV">—</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <div>I built this to actually understand UbiqMap instead of just reading the paper. The ground truth is known only to the simulator — every reconstruction here comes purely from the (simulated) radio links. — [Ram Bhogesara] · [IIT Madras]</div>
+  <div class="links">
+    <a href="https://ieeexplore.ieee.org/abstract/document/10634790" target="_blank" rel="noopener">📄 UbiqMap paper (IEEE TMC 2024)</a>
+    <a href="https://amartya-pixel.github.io/projects/ubiqmap/" target="_blank" rel="noopener">🖥 UbiqMap project page</a>
+    <a href="https://github.com/ayoniitm/rti_tutorial" target="_blank" rel="noopener">🧰 SeNSE rti-tutorial (reference model)</a>
+    <a href="https://cse.iitm.ac.in/~sense/" target="_blank" rel="noopener">🏛 SeNSE group · IIT Madras</a>
+  </div>
+</footer>
+
+<script>
+// ==== the math (no dom) ====
+// mirrors the group's rti_tutorial model. everything below is plain
+// linear algebra plus a hand-rolled conjugate gradient, so the page has
+// zero dependencies and runs fully offline.
+const OPEN = 0.10;    // empty space, barely blocks anything
+const WALL = 2.0;     // walls / furniture block a lot
+const PERSON = 0.6;   // a person, somewhere in between
+
+function mulberry32(seed){
+  let a = seed >>> 0;
+  return function(){
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function gauss(rng){                 // Box–Muller normal sample
+  let u = 0; while (u === 0) u = rng();
+  const v = rng();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+
+// bresenham. my first attempt used interpolation + rounding, but it skipped
+// cells on steep lines, so i switched to the classic algorithm instead.
+function rayCells(r0, c0, r1, c1, N){
+  let dcol = Math.abs(c1 - c0), drow = -Math.abs(r1 - r0);
+  const sc = c0 < c1 ? 1 : -1, sr = r0 < r1 ? 1 : -1;
+  let err = dcol + drow, r = r0, c = c0;
+  const out = [];
+  while (true){
+    out.push(r * N + c);
+    if (r === r1 && c === c1) break;
+    const e2 = 2 * err;
+    if (e2 >= drow){ err += drow; c += sc; }
+    if (e2 <= dcol){ err += dcol; r += sr; }
+  }
+  return out;
+}
+
+function perimeterRoute(N){
+  const out = [];
+  for (let c = 0; c < N; c++) out.push(0 * N + c);
+  for (let r = 1; r < N; r++) out.push(r * N + (N - 1));
+  for (let c = N - 2; c >= 0; c--) out.push((N - 1) * N + c);
+  for (let r = N - 2; r >= 1; r--) out.push(r * N + 0);
+  return out;
+}
+
+function collectLinks(world, N, noiseStd, rng, rounds){
+  const route = perimeterRoute(N), L = route.length;
+  const links = [];
+  // receiver starts at these offsets around the loop. each offset adds a new
+  // batch of links at a different angle — this is what makes the map
+  // recoverable. more offsets = better map (and a slower solve).
+  const fracs = [0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875];
+  const offsets = [];
+  fracs.slice(0, rounds).forEach(f => {
+    const o = Math.round(f * L) % L;
+    if (!offsets.includes(o)) offsets.push(o);
+  });
+  const stride = 2;
+  for (const off of offsets){
+    for (let t = 0; t < L; t += stride){
+      const tx = route[t], rx = route[(t + off) % L];
+      if (tx === rx) continue;
+      const cells = rayCells((tx / N) | 0, tx % N, (rx / N) | 0, rx % N, N);
+      let loss = 0;
+      for (const idx of cells) loss += world[idx];
+      loss += noiseStd * gauss(rng);
+      links.push({ cells, loss, tx, rx });
+    }
+  }
+  return { links, route, L };
+}
+
+function applyA(x, links){
+  const y = new Float64Array(links.length);
+  for (let i = 0; i < links.length; i++){
+    const cells = links[i].cells; let s = 0;
+    for (const c of cells) s += x[c];
+    y[i] = s;
+  }
+  return y;
+}
+
+function applyAT(y, links, N2){
+  const x = new Float64Array(N2);
+  for (let i = 0; i < y.length; i++){
+    const cells = links[i].cells;
+    for (const c of cells) x[c] += y[i];
+  }
+  return x;
+}
+
+function laplacianMul(v, N){
+  const out = new Float64Array(v.length);
+  for (let r = 0; r < N; r++) for (let c = 0; c < N; c++){
+    const i = r * N + c; let deg = 0, s = 0;
+    if (r > 0)     { s += v[i - N]; deg++; }
+    if (r < N - 1) { s += v[i + N]; deg++; }
+    if (c > 0)     { s += v[i - 1]; deg++; }
+    if (c < N - 1) { s += v[i + 1]; deg++; }
+    out[i] = deg * v[i] - s;
+  }
+  return out;
+}
+
+function gradMul(v, N){
+  const dh = new Float64Array(N * (N - 1));
+  const dv = new Float64Array((N - 1) * N);
+  let k = 0;
+  for (let r = 0; r < N; r++) for (let c = 0; c < N - 1; c++) dh[k++] = v[r * N + c + 1] - v[r * N + c];
+  k = 0;
+  for (let r = 0; r < N - 1; r++) for (let c = 0; c < N; c++) dv[k++] = v[(r + 1) * N + c] - v[r * N + c];
+  return { dh, dv };
+}
+
+function gradTMul(uh, uv, N){
+  const out = new Float64Array(N * N);
+  let k = 0;
+  for (let r = 0; r < N; r++) for (let c = 0; c < N - 1; c++){ const w = uh[k++]; out[r * N + c] -= w; out[r * N + c + 1] += w; }
+  k = 0;
+  for (let r = 0; r < N - 1; r++) for (let c = 0; c < N; c++){ const w = uv[k++]; out[r * N + c] -= w; out[(r + 1) * N + c] += w; }
+  return out;
+}
+
+// i didn't want to import a linear algebra library for one page, so i wrote
+// conjugate gradient by hand. it's way shorter than i expected.
+function cg(matvec, b, x0, tol, maxIter){
+  const n = b.length;
+  const x = x0 ? Float64Array.from(x0) : new Float64Array(n);
+  const Ax = matvec(x);
+  const r = new Float64Array(n);
+  for (let i = 0; i < n; i++) r[i] = b[i] - Ax[i];
+  const p = Float64Array.from(r);
+  let rsold = 0, b2 = 0;
+  for (let i = 0; i < n; i++){ rsold += r[i] * r[i]; b2 += b[i] * b[i]; }
+  if (b2 === 0) b2 = 1;
+  for (let it = 0; it < maxIter; it++){
+    if (rsold <= tol * tol * b2) break;
+    const Ap = matvec(p);
+    let pAp = 0; for (let i = 0; i < n; i++) pAp += p[i] * Ap[i];
+    const alpha = rsold / pAp;
+    for (let i = 0; i < n; i++){ x[i] += alpha * p[i]; r[i] -= alpha * Ap[i]; }
+    let rsnew = 0; for (let i = 0; i < n; i++) rsnew += r[i] * r[i];
+    const beta = rsnew / rsold;
+    for (let i = 0; i < n; i++) p[i] = r[i] + beta * p[i];
+    rsold = rsnew;
+  }
+  return x;
+}
+
+function solveLeastSquares(links, N){
+  const M = links.length, N2 = N * N;
+  const y = new Float64Array(M); for (let i = 0; i < M; i++) y[i] = links[i].loss;
+  const b = applyAT(y, links, N2);
+  const eps = 1e-3;
+  const matvec = v => {
+    const a = applyAT(applyA(v, links), links, N2);
+    for (let i = 0; i < N2; i++) a[i] += eps * v[i];
+    return a;
+  };
+  return cg(matvec, b, null, 1e-7, 1400);
+}
+
+// tikhonov: least squares + a penalty that "neighbouring pixels should look
+// alike". stacking [A; sqrt(lam)*L] and reusing the ls solve is the standard
+// trick — took me a second to see why it works, but it does.
+function solveTikhonov(links, N, lambda){
+  const M = links.length, N2 = N * N;
+  const y = new Float64Array(M); for (let i = 0; i < M; i++) y[i] = links[i].loss;
+  const b = applyAT(y, links, N2);
+  const eps = 1e-4;
+  const matvec = v => {
+    const a = applyAT(applyA(v, links), links, N2);
+    const l2 = laplacianMul(laplacianMul(v, N), N);
+    for (let i = 0; i < N2; i++) a[i] += lambda * l2[i] + eps * v[i];
+    return a;
+  };
+  return cg(matvec, b, null, 1e-8, 900);
+}
+
+// total variation keeps wall edges sharp. honestly the math here is above my
+// head, i just follow the tutorial's reweighting loop — and it works, so i'm
+// not complaining.
+function solveTV(links, N, lambda, iters){
+  const M = links.length, N2 = N * N;
+  const y = new Float64Array(M); for (let i = 0; i < M; i++) y[i] = links[i].loss;
+  const b = applyAT(y, links, N2);
+  const epsR = 1e-4, epsW = 1e-3;
+  let x = solveTikhonov(links, N, lambda);
+  for (let it = 0; it < iters; it++){
+    const g = gradMul(x, N);
+    const wh = Float64Array.from(g.dh, v => 1 / Math.sqrt(v * v + epsW * epsW));
+    const wv = Float64Array.from(g.dv, v => 1 / Math.sqrt(v * v + epsW * epsW));
+    const matvec = v => {
+      const a = applyAT(applyA(v, links), links, N2);
+      const gv = gradMul(v, N);
+      for (let j = 0; j < gv.dh.length; j++) gv.dh[j] *= wh[j];
+      for (let j = 0; j < gv.dv.length; j++) gv.dv[j] *= wv[j];
+      const gt = gradTMul(gv.dh, gv.dv, N);
+      for (let i = 0; i < N2; i++) a[i] += lambda * gt[i] + epsR * v[i];
+      return a;
+    };
+    x = cg(matvec, b, x, 1e-6, 500);
+  }
+  return x;
+}
+
+// classic otsu threshold, typed out from the wikipedia description. turns the
+// grayscale reconstruction into a "wall / no wall" map for the IoU metric.
+function otsuThreshold(vals){
+  let mn = Infinity, mx = -Infinity;
+  for (const v of vals){ if (v < mn) mn = v; if (v > mx) mx = v; }
+  if (mx - mn < 1e-9) return mx;
+  const hist = new Float64Array(256);
+  for (const v of vals){
+    let b = Math.floor((v - mn) / (mx - mn) * 255);
+    if (b < 0) b = 0; if (b > 255) b = 255;
+    hist[b]++;
+  }
+  const total = vals.length;
+  let sum = 0; for (let i = 0; i < 256; i++) sum += i * hist[i];
+  let sumB = 0, wB = 0, bestT = 0, bestVar = -1;
+  for (let t = 0; t < 256; t++){
+    wB += hist[t]; if (wB === 0) continue;
+    const wF = total - wB; if (wF === 0) break;
+    sumB += t * hist[t];
+    const mB = sumB / wB, mF = (sum - sumB) / wF;
+    const varr = wB * wF * (mB - mF) * (mB - mF);
+    if (varr > bestVar){ bestVar = varr; bestT = t; }
+  }
+  return mn + (mx - mn) * (bestT + 0.5) / 256;
+}
+
+function evaluate(recon, world, types, N){
+  const n = world.length;
+  let s = 0, mx = 0, my = 0;
+  for (let i = 0; i < n; i++){ s += (recon[i] - world[i]) ** 2; mx += recon[i]; my += world[i]; }
+  const rmse = Math.sqrt(s / n);
+  mx /= n; my /= n;
+  let sxx = 0, syy = 0, sxy = 0;
+  for (let i = 0; i < n; i++){
+    const dx = recon[i] - mx, dy = world[i] - my;
+    sxx += dx * dx; syy += dy * dy; sxy += dx * dy;
+  }
+  const corr = sxy / Math.sqrt(sxx * syy || 1);
+  const thr = otsuThreshold(recon);
+  let inter = 0, union = 0;
+  for (let i = 0; i < n; i++){
+    const est = recon[i] > thr ? 1 : 0;
+    const tru = types[i] === 1 ? 1 : 0;   // "layout" = walls only
+    if (est || tru) union++;
+    if (est && tru) inter++;
+  }
+  const iou = union ? inter / union : 0;
+  return { rmse, corr, iou };
+}
+// ==== /math ====
+
+// ==== ui ====
+const $ = id => document.getElementById(id);
+
+const state = {
+  N: 24, cs: 0, csr: 0,
+  world: null, types: null,
+  links: [], route: [],
+  recon: {}, metrics: {},
+  tool: 'wall', preset: 'apartment',
+  anim: { active: false, i: 0, last: 0, raf: 0 },
+};
+
+const truthCanvas = $('truth');
+const tctx = truthCanvas.getContext('2d');
+const rCanvases = { ls: $('rLS'), tk: $('rTK'), tv: $('rTV') };
+const rctx = {
+  ls: rCanvases.ls.getContext('2d'),
+  tk: rCanvases.tk.getContext('2d'),
+  tv: rCanvases.tv.getContext('2d'),
+};
+
+function layout(){
+  state.cs = Math.max(4, Math.floor(460 / state.N));
+  truthCanvas.width = truthCanvas.height = state.N * state.cs;
+  state.csr = Math.max(3, Math.floor(240 / state.N));
+  for (const k in rCanvases) rCanvases[k].width = rCanvases[k].height = state.N * state.csr;
+}
+
+function newWorld(){ return new Float32Array(state.N * state.N).fill(OPEN); }
+function newTypes(){ return new Uint8Array(state.N * state.N); }
+
+function setCell(r, c, type){
+  if (r < 0 || c < 0 || r >= state.N || c >= state.N) return;
+  const i = r * state.N + c;
+  state.types[i] = type;
+  state.world[i] = type === 1 ? WALL : type === 2 ? PERSON : OPEN;
+}
+
+function fillRectCells(r0, c0, r1, c1, type){
+  for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) setCell(r, c, type);
+}
+
+function clearAll(){ state.world = newWorld(); state.types = newTypes(); }
+
+function presetApartment(){
+  clearAll();
+  const N = state.N;
+  fillRectCells(0, 0, N - 1, N - 1, 0);
+  fillRectCells(0, 0, N - 1, 0, 1);                 // boundary
+  fillRectCells(0, N - 1, N - 1, N - 1, 1);
+  fillRectCells(0, 0, 0, N - 1, 1);
+  fillRectCells(N - 1, 0, N - 1, N - 1, 1);
+  const wc = Math.round(N * 0.46);                  // interior wall
+  for (let r = 1; r < N - 1; r++) setCell(r, wc, 1);
+  const d0 = Math.round(N * 0.38), d1 = Math.round(N * 0.58);   // doorway
+  for (let r = d0; r <= d1; r++) setCell(r, wc, 0);
+  const wr = Math.round(N * 0.66), wr2 = Math.round(N * 0.78);  // right-room wall
+  for (let r = wr; r < N - 1; r++) setCell(r, wr2, 1);
+  fillRectCells(Math.round(N*0.16), Math.round(N*0.12), Math.round(N*0.26), Math.round(N*0.30), 1);
+  fillRectCells(Math.round(N*0.16), Math.round(N*0.62), Math.round(N*0.26), Math.round(N*0.80), 1);
+  fillRectCells(Math.round(N*0.78), Math.round(N*0.30), Math.round(N*0.88), Math.round(N*0.44), 1);
+}
+
+function presetRooms(){
+  clearAll();
+  const N = state.N;
+  fillRectCells(0, 0, N - 1, 0, 1);
+  fillRectCells(0, N - 1, N - 1, N - 1, 1);
+  fillRectCells(0, 0, 0, N - 1, 1);
+  fillRectCells(N - 1, 0, N - 1, N - 1, 1);
+  const wc = Math.round(N * 0.5);
+  for (let r = 1; r < N - 1; r++) setCell(r, wc, 1);
+  const d0 = Math.round(N * 0.42), d1 = Math.round(N * 0.60);
+  for (let r = d0; r <= d1; r++) setCell(r, wc, 0);
+  const wc2 = Math.round(N * 0.24);
+  for (let c = 1; c < N - 1; c++) setCell(wc2, c, 1);
+}
+
+function presetHall(){
+  clearAll();
+  const N = state.N;
+  fillRectCells(0, 0, N - 1, 0, 1);
+  fillRectCells(0, N - 1, N - 1, N - 1, 1);
+  fillRectCells(0, 0, 0, N - 1, 1);
+  fillRectCells(N - 1, 0, N - 1, N - 1, 1);
+  const pillars = [
+    [0.25, 0.25], [0.25, 0.5], [0.25, 0.75],
+    [0.5, 0.35], [0.5, 0.65],
+    [0.75, 0.25], [0.75, 0.5], [0.75, 0.75],
+  ];
+  for (const [fr, fc] of pillars){
+    const r = Math.round(fr * N), c = Math.round(fc * N);
+    fillRectCells(r - 1, c - 1, r + 1, c + 1, 1);
+  }
+}
+
+function presetEmpty(){ clearAll(); const N = state.N;
+  fillRectCells(0, 0, N - 1, 0, 1);
+  fillRectCells(0, N - 1, N - 1, N - 1, 1);
+  fillRectCells(0, 0, 0, N - 1, 1);
+  fillRectCells(N - 1, 0, N - 1, N - 1, 1);
+}
+
+function presetRandom(){
+  clearAll();
+  const N = state.N;
+  fillRectCells(0, 0, N - 1, 0, 1);
+  fillRectCells(0, N - 1, N - 1, N - 1, 1);
+  fillRectCells(0, 0, 0, N - 1, 1);
+  fillRectCells(N - 1, 0, N - 1, N - 1, 1);
+  const rng = mulberry32(7);
+  const blocks = 4 + Math.floor(rng() * 4);
+  for (let b = 0; b < blocks; b++){
+    const r0 = 2 + Math.floor(rng() * (N - 6)), c0 = 2 + Math.floor(rng() * (N - 6));
+    const h = 2 + Math.floor(rng() * 5), w = 2 + Math.floor(rng() * 5);
+    fillRectCells(r0, c0, Math.min(N - 2, r0 + h), Math.min(N - 2, c0 + w), 1);
+  }
+}
+
+const PRESETS = { apartment: presetApartment, rooms: presetRooms, hall: presetHall, empty: presetEmpty, random: presetRandom };
+
+// ---------------- rendering ----------------
+function pxOf(idx, cs){ const r = (idx / state.N) | 0, c = idx % state.N; return [(c + 0.5) * cs, (r + 0.5) * cs]; }
+
+function renderTruth(){
+  const { N, cs, types, world } = state;
+  tctx.clearRect(0, 0, truthCanvas.width, truthCanvas.height);
+  for (let i = 0; i < N * N; i++){
+    const r = (i / N) | 0, c = i % N;
+    const t = types[i];
+    let col = '#101319';
+    if (t === 1) col = '#e8e9ef';
+    else if (t === 2) col = '#ff9d3c';
+    else { const v = (world[i] - OPEN) / (WALL - OPEN); const g = Math.round(30 + 18 * v); col = `rgb(${g},${g+2},${g+8})`; }
+    tctx.fillStyle = col;
+    tctx.fillRect(c * cs, r * cs, cs, cs);
+  }
+  // grid lines
+  tctx.strokeStyle = 'rgba(255,255,255,0.04)';
+  tctx.lineWidth = 1;
+  tctx.beginPath();
+  for (let i = 0; i <= N; i++){
+    tctx.moveTo(i * cs, 0); tctx.lineTo(i * cs, N * cs);
+    tctx.moveTo(0, i * cs); tctx.lineTo(N * cs, i * cs);
+  }
+  tctx.stroke();
+
+  // survey animation overlay
+  if (state.anim.active && state.links.length){
+    const upto = Math.min(state.anim.i, state.links.length);
+    tctx.lineWidth = 1;
+    tctx.strokeStyle = 'rgba(120,200,255,0.06)';
+    tctx.beginPath();
+    for (let k = 0; k < upto; k++){
+      const l = state.links[k];
+      const [x0, y0] = pxOf(l.tx, cs), [x1, y1] = pxOf(l.rx, cs);
+      tctx.moveTo(x0, y0); tctx.lineTo(x1, y1);
+    }
+    tctx.stroke();
+    if (state.anim.i < state.links.length){
+      const l = state.links[state.anim.i];
+      const [x0, y0] = pxOf(l.tx, cs), [x1, y1] = pxOf(l.rx, cs);
+      tctx.strokeStyle = '#ff6b6b'; tctx.lineWidth = 2;
+      tctx.beginPath(); tctx.moveTo(x0, y0); tctx.lineTo(x1, y1); tctx.stroke();
+      tctx.fillStyle = '#3ecf8e'; tctx.beginPath(); tctx.arc(x0, y0, Math.max(2.5, cs * 0.22), 0, 7); tctx.fill();
+      tctx.fillStyle = '#38bdf8'; tctx.beginPath(); tctx.arc(x1, y1, Math.max(2.5, cs * 0.22), 0, 7); tctx.fill();
+    }
+  }
+}
+
+function reconColor(v){
+  let t = (v - OPEN) / (WALL - OPEN);
+  if (t < 0) t = 0; if (t > 1) t = 1;
+  const g = Math.round(255 * (1 - t));
+  return `rgb(${g},${g},${g})`;
+}
+
+function renderRecon(canvas, values){
+  const { N, csr } = state;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  for (let i = 0; i < N * N; i++){
+    const r = (i / N) | 0, c = i % N;
+    ctx.fillStyle = reconColor(values[i]);
+    ctx.fillRect(c * csr, r * csr, csr, csr);
+  }
+}
+
+function setMetric(key, name, m){
+  const el = $('m' + key);
+  el.innerHTML =
+    `RMSE <b>${m.rmse.toFixed(3)}</b> · r <b>${m.corr.toFixed(2)}</b> · layout IoU <b class="iou">${(m.iou * 100).toFixed(0)}%</b>`;
+}
+
+function renderAll(){
+  renderTruth();
+  for (const k of ['ls', 'tk', 'tv']) if (state.recon[k]) renderRecon(rCanvases[k], state.recon[k]);
+  for (const k of ['ls', 'tk', 'tv']) if (state.metrics[k]) setMetric(k, k, state.metrics[k]);
+}
+
+// ---------------- survey + solve ----------------
+function runSurvey(){
+  const N = state.N;
+  const noise = parseFloat($('noise').value);
+  const lambda = parseFloat($('lambda').value);
+  const rounds = parseInt($('rounds').value, 10);
+  const rng = mulberry32(42);                       // fixed seed → reproducible
+  const { links, route } = collectLinks(state.world, N, noise, rng, rounds);
+  state.links = links; state.route = route;
+  $('mCount').textContent = links.length;
+  $('pCount').textContent = N * N;
+  $('solving').style.opacity = 1;
+  stopAnim();
+
+  setTimeout(() => {
+    const t0 = performance.now();
+    const ls = solveLeastSquares(links, N);
+    const tk = solveTikhonov(links, N, lambda);
+    const tv = solveTV(links, N, lambda, 6);
+    const ms = Math.round(performance.now() - t0);
+    state.recon = { ls, tk, tv };
+    state.metrics = {
+      ls: evaluate(ls, state.world, state.types, N),
+      tk: evaluate(tk, state.world, state.types, N),
+      tv: evaluate(tv, state.world, state.types, N),
+    };
+    $('time').textContent = ms + ' ms';
+    $('solving').style.opacity = 0;
+    renderAll();
+  }, 30);
+}
+
+// ---------------- animation ----------------
+function stopAnim(){
+  state.anim.active = false;
+  cancelAnimationFrame(state.anim.raf);
+  $('animBtn').textContent = '⏵ Animate survey';
+  renderTruth();
+}
+
+function toggleAnim(){
+  if (state.anim.active){ stopAnim(); return; }
+  if (!state.links.length) runSurvey();
+  state.anim.active = true;
+  state.anim.i = 0; state.anim.last = 0;
+  $('animBtn').textContent = '⏹ Stop animation';
+  state.anim.raf = requestAnimationFrame(animLoop);
+}
+
+function animLoop(now){
+  if (!state.anim.active) return;
+  const dt = now - state.anim.last;
+  if (dt > 40){ state.anim.last = now; state.anim.i = (state.anim.i + 1) % (state.links.length + 1); }
+  renderTruth();
+  state.anim.raf = requestAnimationFrame(animLoop);
+}
+
+// ---------------- painting ----------------
+let painting = false;
+function paintAt(e){
+  const rect = truthCanvas.getBoundingClientRect();
+  const x = e.clientX - rect.left, y = e.clientY - rect.top;
+  const c = Math.floor(x / state.cs), r = Math.floor(y / state.cs);
+  if (r < 0 || c < 0 || r >= state.N || c >= state.N) return;
+  const type = state.tool === 'wall' ? 1 : state.tool === 'person' ? 2 : 0;
+  setCell(r, c, type);
+  renderTruth();
+}
+truthCanvas.addEventListener('pointerdown', e => { painting = true; truthCanvas.setPointerCapture(e.pointerId); paintAt(e); });
+truthCanvas.addEventListener('pointermove', e => { if (painting) paintAt(e); });
+window.addEventListener('pointerup', () => { if (painting){ painting = false; runSurvey(); } });
+
+// ---------------- controls ----------------
+function setTool(name, btn){
+  state.tool = name;
+  ['toolWall', 'toolErase', 'toolPerson'].forEach(id => $(id).classList.toggle('on', id === btn));
+}
+$('toolWall').onclick  = () => setTool('wall', 'toolWall');
+$('toolErase').onclick = () => setTool('erase', 'toolErase');
+$('toolPerson').onclick= () => setTool('person', 'toolPerson');
+
+$('runBtn').onclick = runSurvey;
+$('animBtn').onclick = toggleAnim;
+
+function bindRange(id, labelId, fmt, cb){
+  const el = $(id);
+  el.addEventListener('input', () => {
+    $(labelId).textContent = fmt(el.value);
+    if (cb) cb();
+  });
+}
+bindRange('noise', 'noiseVal', v => parseFloat(v).toFixed(3), runSurvey);
+bindRange('lambda', 'lambdaVal', v => parseFloat(v).toFixed(2), runSurvey);
+bindRange('rounds', 'roundsVal', v => v, runSurvey);
+
+$('Nsel').addEventListener('change', () => {
+  state.N = parseInt($('Nsel').value, 10);
+  layout();
+  PRESETS[state.preset]();
+  stopAnim();
+  runSurvey();
+});
+
+Object.entries({
+  presetApt: 'apartment', presetRooms: 'rooms', presetHall: 'hall',
+  presetEmpty: 'empty', presetRandom: 'random',
+}).forEach(([id, name]) => {
+  $(id).onclick = () => { state.preset = name; PRESETS[name](); stopAnim(); runSurvey(); };
+});
+
+// ---------------- init ----------------
+layout();
+presetApartment();
+runSurvey();
+</script>
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v3d52b47920f24c319d37e2661827c42b1787588026925" integrity="sha512-d9sL6GJLXn6fInD1+TVXhTcQOsmxeHfmHAvwGDIxp5TO+uo1fiWW7mHomMj4MLRlCsJDTqXzWLHJFFlPCEIj/A==" data-cf-beacon='{"version":"2024.11.0","token":"1954b47c125f43f8b4338b3c4f804e4f"}' crossorigin="anonymous"></script>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a3490aae3cedff77',t:'MTc4ODMxNTY5MQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>
