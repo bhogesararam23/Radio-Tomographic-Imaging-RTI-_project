@@ -617,7 +617,7 @@ function renderTruth(){
 function reconColor(v){
   let t = (v - OPEN) / (WALL - OPEN);
   if (t < 0) t = 0; if (t > 1) t = 1;
-  const g = Math.round(255 * (1 - t));
+  const g = Math.round(255 * t);
   return `rgb(${g},${g},${g})`;
 }
 
