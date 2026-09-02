@@ -59,7 +59,7 @@ python -m http.server 8000
 1. create a public repo (e.g. `rti-sim` or `ubiqmap-demo`)
 2. upload `index.html` (and the rest if you want)
 3. Settings → Pages → deploy from `main`, root folder
-4. the demo is live at ``
+4. the demo is live at `https://bhogesararam23.github.io/rti_project/`
 
 ## what I learned
 
